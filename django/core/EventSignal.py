@@ -8,7 +8,7 @@ import weakref
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 # Needed for Django's signal internals
 NONE_ID = -1
