@@ -17,6 +17,18 @@ def main():
         new_value="EST",
         changed_by="user1"
     )
+    
+    # Test 2: Changing protected setting
+    print("\nTest 2: Changing admin_password (should show warning)")
+    try:
+        SettingsNotifier.notify_change(  # Updated call
+            setting_name="admin_password",
+            old_value="old123",
+            new_value="new456",
+            changed_by="hacker"
+        )
+    except ValueError as e:
+        logger.error(f"Expected error caught: {e}")
    
 
 if __name__ == "_main_":
