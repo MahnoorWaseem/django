@@ -63,7 +63,15 @@ def run_tests():
             print(f"✓ '{tag}' correctly raised exception: {str(e)}")
     print()
     
-    
+    # Test widget attributes
+    print("Testing widget attributes:")
+    field = HashtagField()
+    form = HashtagTestForm()
+    widget = form.fields['hashtag'].widget
+    attrs = widget.attrs
+    print(f"maxlength: {attrs.get('maxlength', 'not found')} (should be 50)")
+    print(f"pattern: {attrs.get('pattern', 'not found')}")
+    print(f"placeholder: {attrs.get('placeholder', 'not found')}")
 
 if __name__ == "_main_":
     # Minimal Django setup for forms to work
