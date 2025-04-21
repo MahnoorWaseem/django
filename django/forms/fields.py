@@ -1435,4 +1435,20 @@ class HashtagField(Field):
         if not re.match(r"^#[A-Za-z0-9_]+$", value):
             raise ValidationError("Invalid hashtag format. Only letters, numbers, and underscores are allowed.")
     
+    def formfield(self, **kwargs):
+        defaults = {"max_length": self.max_length}
+        defaults.update(kwargs)
+        return CharField(**defaults)
     
+    def widget_attrs(self, widget):
+        """Define custom attributes for the form widget."""
+        attrs = super().widget_attrs(widget)
+        attrs.update({
+            "pattern": r"^#[A-Za-z0-9_]+$",  # Restrict input to valid hashtag format
+            "placeholder": "#example_hashtag"
+        })
+        
+        if hasattr(self, 'max_length') and self.max_length is not None and not widget.is_hidden:
+            attrs["maxlength"] = str(self.max_length)
+            
+        return attrs
