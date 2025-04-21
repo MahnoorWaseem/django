@@ -74,4 +74,14 @@ class EventSignal(Signal):
             
         return responses
     
-   
+    @cached_property
+    def statistics(self):
+        return {
+            'total_sends': self._send_count,
+            'total_receivers': self._receiver_count,
+            'current_receivers': len(self.receivers),
+            'history_size': len(self.history)
+        }
+
+# 2. Create our signal instance
+setting_changed = EventSignal(use_caching=True, max_history=5)
