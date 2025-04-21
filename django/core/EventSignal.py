@@ -105,3 +105,19 @@ class SettingsNotifier:
             logger.info(f"Setting {setting_name} change notified to {len(responses)} receivers")
         
         return responses
+
+# 4. Create receiver functions
+@receiver(setting_changed)
+def log_setting_change(sender, setting_name, old_value, new_value, **kwargs):
+    logger.info(
+        f"LOG: Setting changed: {setting_name} from {old_value} to {new_value}"
+        f" (changed by: {kwargs.get('changed_by', 'system')})"
+    )
+    return {'status': 'logged', 'setting': setting_name}
+
+@receiver(setting_changed, priority=1)
+def validate_setting_change(sender, setting_name, new_value, **kwargs):
+    if setting_name == "admin_password":
+        logger.info("Attempt to change admin password!")
+        logger.info("Cannot change admin password directly")
+    return {'status': 'validated', 'setting': setting_name}
