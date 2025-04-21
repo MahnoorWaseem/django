@@ -1399,3 +1399,13 @@ class JSONField(CharField):
         return json.dumps(initial, sort_keys=True, cls=self.encoder) != json.dumps(
             self.to_python(data), sort_keys=True, cls=self.encoder
         )
+
+
+
+# ------------------------- PROPOSED EXTENSION FOR TEMPLATE PATTERN ------------------------------------#
+class HashtagField(Field):
+    def _init_(self, *, max_length=50, **kwargs):
+        self.max_length = max_length
+        super()._init_(**kwargs)
+
+    
