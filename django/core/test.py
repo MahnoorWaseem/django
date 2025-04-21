@@ -45,7 +45,14 @@ def main():
     for k, v in setting_changed.statistics.items():
         print(f"{k}: {v}")
     
-    
+    print("\nSignal History (last 5):")
+    for i, event in enumerate(setting_changed.history, 1):
+        print(f"\nEvent {i}:")
+        print(f"  Sender: {event['sender']}")
+        print(f"  Timestamp: {event['timestamp']}")
+        print("  Responses:")
+        for receiver, response in event['responses']:
+            print(f"    - {receiver}: {response}")
 
 if __name__ == "_main_":
     main()
