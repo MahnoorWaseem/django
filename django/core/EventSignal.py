@@ -85,3 +85,23 @@ class EventSignal(Signal):
 
 # 2. Create our signal instance
 setting_changed = EventSignal(use_caching=True, max_history=5)
+
+# 3. Create SettingsNotifier class
+class SettingsNotifier:
+    @staticmethod
+    def notify_change(setting_name, old_value, new_value, changed_by=None):
+        responses = setting_changed.send(
+            sender="settings_manager",  # Changed from None to a string sender
+            setting_name=setting_name,
+            old_value=old_value,
+            new_value=new_value,
+            changed_by=changed_by,
+            timestamp=time.time()
+        )
+        
+        if not responses:
+            logger.info(f"Setting {setting_name} changed but no receivers responded")
+        else:
+            logger.info(f"Setting {setting_name} change notified to {len(responses)} receivers")
+        
+        return responses
