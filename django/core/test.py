@@ -3,7 +3,7 @@ from django.core.eventSignal import SettingsNotifier, setting_changed  # Updated
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 
 def main():
