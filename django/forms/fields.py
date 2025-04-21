@@ -1408,4 +1408,31 @@ class HashtagField(Field):
         self.max_length = max_length
         super()._init_(**kwargs)
 
+    def to_python(self, value):
+        """Convert the input value to a properly formatted hashtag."""
+        if value in self.empty_values:
+            return ""
+        
+        if not isinstance(value, str):
+            raise ValidationError("Hashtag must be a string.")
+        
+        value = value.strip()
+        if not value.startswith("#"):
+            value = "#" + value
+        
+        if " " in value:
+            raise ValidationError("Hashtags cannot contain spaces.")
+        
+        return value
+
+    def validate(self, value):
+        """Ensure the hashtag follows proper formatting."""
+        super().validate(value)
+        
+        if value in self.empty_values:
+            return
+        
+        if not re.match(r"^#[A-Za-z0-9_]+$", value):
+            raise ValidationError("Invalid hashtag format. Only letters, numbers, and underscores are allowed.")
+    
     
