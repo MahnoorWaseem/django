@@ -29,7 +29,23 @@ def main():
         )
     except ValueError as e:
         logger.error(f"Expected error caught: {e}")
-   
+    
+    # Test 3: Multiple changes to show history
+    print("\nTest 3: Making multiple changes")
+    for i in range(3):
+        SettingsNotifier.notify_change(  # Updated call
+            setting_name=f"setting_{i}",
+            old_value=f"old_{i}",
+            new_value=f"new_{i}",
+            changed_by=f"user_{i}"
+        )
+    
+    # Show statistics and history
+    print("\nSignal Statistics:")
+    for k, v in setting_changed.statistics.items():
+        print(f"{k}: {v}")
+    
+    
 
 if __name__ == "_main_":
     main()
