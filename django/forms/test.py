@@ -34,6 +34,35 @@ def run_tests():
             print(f"✗ '{tag}' failed validation: {form.errors}")
     print()
     
+    # Test invalid hashtags
+    invalid_hashtags = [
+        "",
+        "   ",
+        "#test test",  # contains space
+        "test test",  # contains space
+        "#test-test",  # contains hyphen
+        "#test.test",  # contains period
+        "#test@test",  # contains @
+        "##test",      # multiple #
+        "test#test",   # # in middle
+        123,           # not a string
+        ["#test"],     # not a string
+        {"#test"},     # not a string
+        "#",           # just the hash
+    ]
+    
+    print("Testing invalid hashtags:")
+    for tag in invalid_hashtags:
+        try:
+            form = HashtagTestForm(data={'hashtag': tag})
+            if form.is_valid():
+                print(f"✗ '{tag}' was incorrectly validated as '{form.cleaned_data['hashtag']}'")
+            else:
+                print(f"✓ '{tag}' correctly failed validation: {form.errors['hashtag'][0]}")
+        except Exception as e:
+            print(f"✓ '{tag}' correctly raised exception: {str(e)}")
+    print()
+    
     
 
 if __name__ == "_main_":
