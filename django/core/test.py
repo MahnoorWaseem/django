@@ -1,58 +1,39 @@
-import logging
-from django.core.eventSignal import SettingsNotifier, setting_changed  # Updated import
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# test_token_backend.py
+from django.contrib.auth.backends import TokenHeaderBackend
+from django.contrib.auth.backends import UserModel
 
 
-def main():
-    print("=== Testing EventSignal ===")
+# 4. Simple tests
+if _name_ == "_main_":
+    backend = TokenHeaderBackend()
     
-    # Test 1: Basic signal send
-    print("\nTest 1: Changing time_zone")
-    SettingsNotifier.notify_change(  # Updated call
-        setting_name="time_zone",
-        old_value="UTC",
-        new_value="EST",
-        changed_by="user1"
-    )
-    
-    # Test 2: Changing protected setting
-    print("\nTest 2: Changing admin_password (should show warning)")
-    try:
-        SettingsNotifier.notify_change(  # Updated call
-            setting_name="admin_password",
-            old_value="old123",
-            new_value="new456",
-            changed_by="hacker"
-        )
-    except ValueError as e:
-        logger.error(f"Expected error caught: {e}")
-    
-    # Test 3: Multiple changes to show history
-    print("\nTest 3: Making multiple changes")
-    for i in range(3):
-        SettingsNotifier.notify_change(  # Updated call
-            setting_name=f"setting_{i}",
-            old_value=f"old_{i}",
-            new_value=f"new_{i}",
-            changed_by=f"user_{i}"
-        )
-    
-    # Show statistics and history
-    print("\nSignal Statistics:")
-    for k, v in setting_changed.statistics.items():
-        print(f"{k}: {v}")
-    
-    print("\nSignal History (last 5):")
-    for i, event in enumerate(setting_changed.history, 1):
-        print(f"\nEvent {i}:")
-        print(f"  Sender: {event['sender']}")
-        print(f"  Timestamp: {event['timestamp']}")
-        print("  Responses:")
-        for receiver, response in event['responses']:
-            print(f"    - {receiver}: {response}")
+   # Test 1: Valid active user
+user1 = backend.authenticate(None, token="token123")
+print(f"Test 1 - Valid active user ('token123'): {'SUCCESS (User exists and is active)' if user1 and user1.username == 'user1' else 'FAIL (User not found or inactive)'}")
 
-if __name__ == "_main_":
-    main()
+# Test 2: Valid but inactive user
+user2 = backend.authenticate(None, token="token456")
+if user2:
+    print("Test 2 - Inactive user ('token456'): FAIL (User authenticated, but should be rejected)")
+else:
+    # Check if the user exists but is inactive
+    mock_user = UserModel.get(auth_token="token456")
+    if mock_user:
+        print("Test 2 - Inactive user ('token456'): SUCCESS (User exists but is inactive → correctly rejected)")
+    else:
+        print("Test 2 - Inactive user ('token456'): FAIL (User not found)")
+
+# Test 3: Invalid token
+user3 = backend.authenticate(None, token="bad_token")
+if user3:
+    print("Test 3 - Invalid token ('bad_token'): FAIL (User authenticated, but token is invalid)")
+else:
+    # Check if the token truly doesn't exist
+    mock_user = UserModel.get(auth_token="bad_token")
+    if mock_user:
+        print("Test 3 - Invalid token ('bad_token'): FAIL (Token actually exists)")
+    else:
+        print("Test 3 - Invalid token ('bad_token'): SUCCESS (Token does not exist → correctly rejected)")
+
+
+# python django/contrib/auth/test.py
