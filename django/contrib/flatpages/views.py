@@ -6,6 +6,10 @@ from django.shortcuts import get_object_or_404
 from django.template import loader
 from django.utils.safestring import mark_safe
 from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import decorator_from_middleware
+from django.middleware.extension import RequestResponseLoggerMiddleware
+
+request_response_logger_decorator = decorator_from_middleware(RequestResponseLoggerMiddleware)
 
 DEFAULT_TEMPLATE = "flatpages/default.html"
 
@@ -23,12 +27,12 @@ def flatpage(request, url):
     """
     Public interface to the flat page view.
 
-    Models: `flatpages.flatpages`
-    Templates: Uses the template defined by the ``template_name`` field,
-        or :template:`flatpages/default.html` if template_name is not defined.
+    Models: flatpages.flatpages
+    Templates: Uses the template defined by the `template_name` field,
+        or :template:flatpages/default.html if template_name is not defined.
     Context:
         flatpage
-            `flatpages.flatpages` object
+            flatpages.flatpages object
     """
     if not url.startswith("/"):
         url = "/" + url
@@ -45,6 +49,7 @@ def flatpage(request, url):
     return render_flatpage(request, f)
 
 
+@request_response_logger_decorator
 @csrf_protect
 def render_flatpage(request, f):
     """
