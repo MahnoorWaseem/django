@@ -1,11 +1,11 @@
 from asgiref.sync import sync_to_async
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+# from django.contrib.auth.models import Permission
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Exists, OuterRef, Q
 
-UserModel = get_user_model()
-
+# UserModel = get_user_model()
 
 class BaseBackend:
     def authenticate(self, request, **kwargs):
@@ -49,7 +49,8 @@ class BaseBackend:
 
     async def ahas_perm(self, user_obj, perm, obj=None):
         return perm in await self.aget_all_permissions(user_obj, obj)
-
+    
+    
 
 class ModelBackend(BaseBackend):
     """
@@ -241,11 +242,9 @@ class ModelBackend(BaseBackend):
             return None
         return user if self.user_can_authenticate(user) else None
 
-
 class AllowAllUsersModelBackend(ModelBackend):
     def user_can_authenticate(self, user):
         return True
-
 
 class RemoteUserBackend(ModelBackend):
     """
@@ -336,7 +335,190 @@ class RemoteUserBackend(ModelBackend):
         """See configure_user()"""
         return await sync_to_async(self.configure_user)(request, user, created)
 
-
 class AllowAllUsersRemoteUserBackend(RemoteUserBackend):
     def user_can_authenticate(self, user):
         return True
+
+# for demo of proposed extension
+class UserModel:
+    _users = [
+        {"id": 1, "username": "user1", "auth_token": "token123", "is_active": True},
+        {"id": 2, "username": "user2", "auth_token": "token456", "is_active": False}
+    ]
+
+    @classmethod
+    def get(cls, auth_token=None):
+        for user in cls._users:
+            if user["auth_token"] == auth_token:
+                return type('User', (), user)
+        return None
+    
+
+# proposed extension
+class TokenHeaderBackend(BaseBackend):
+    """
+    Custom authentication backend that verifies users based on a token passed in headers.
+    """
+
+    def authenticate(self, request, token=None, **kwargs):
+        if token is None:
+            return None
+        
+        user = UserModel.get(auth_token=token)
+        if user and self.user_can_authenticate(user):
+            return user
+        return None
+
+    async def aauthenticate(self, request, token=None, **kwargs):
+        """
+        Async version of authenticate().
+        """
+        if token is None:
+            return None
+
+        try:
+            user = await UserModel.objects.aget(auth_token=token)
+            if await self.auser_can_authenticate(user):
+                return user
+        except UserModel.DoesNotExist:
+            return None
+
+    def user_can_authenticate(self, user):
+        """
+        Check if the user is active and allowed to authenticate.
+        """
+        return getattr(user, "is_active", True)
+    
+
+    async def auser_can_authenticate(self, user):
+        """
+        Async version of user_can_authenticate().
+        """
+        return getattr(user, "is_active", True)
+
+    def get_user_permissions(self, user_obj, obj=None):
+        """
+        Return a set of permission strings the user has from user-specific permissions.
+        """
+        return self._get_permissions(user_obj, obj, "user")
+
+    async def aget_user_permissions(self, user_obj, obj=None):
+        """
+        Async version of get_user_permissions().
+        """
+        return await self._aget_permissions(user_obj, obj, "user")
+
+    def get_group_permissions(self, user_obj, obj=None):
+        """
+        Return a set of permission strings the user has from their groups.
+        """
+        return self._get_permissions(user_obj, obj, "group")
+
+    async def aget_group_permissions(self, user_obj, obj=None):
+        """
+        Async version of get_group_permissions().
+        """
+        return await self._aget_permissions(user_obj, obj, "group")
+
+    def get_all_permissions(self, user_obj, obj=None):
+        """
+        Return a set of all permissions the user has.
+        """
+        if not user_obj.is_active or obj is not None:
+            return set()
+        if not hasattr(user_obj, "_perm_cache"):
+            user_obj._perm_cache = super().get_all_permissions(user_obj)
+        return user_obj._perm_cache
+
+    async def aget_all_permissions(self, user_obj, obj=None):
+        """
+        Async version of get_all_permissions().
+        """
+        if not user_obj.is_active or obj is not None:
+            return set()
+        if not hasattr(user_obj, "_perm_cache"):
+            user_obj._perm_cache = await super().aget_all_permissions(user_obj)
+        return user_obj._perm_cache
+
+    def _get_permissions(self, user_obj, obj, from_name):
+        """
+        Internal method to fetch user permissions from either 'user' or 'group'.
+        """
+        if not user_obj.is_active or obj is not None:
+            return set()
+
+        perm_cache_name = f"_{from_name}_perm_cache"
+        if not hasattr(user_obj, perm_cache_name):
+            if user_obj.is_superuser:
+                perms = Permission.objects.all()
+            else:
+                perms = getattr(self, f"_get_{from_name}_permissions")(user_obj)
+            perms = perms.values_list("content_type__app_label", "codename")
+            setattr(user_obj, perm_cache_name, {f"{ct}.{name}" for ct, name in perms})
+        return getattr(user_obj, perm_cache_name)
+
+    async def _aget_permissions(self, user_obj, obj, from_name):
+        """
+        Async version of _get_permissions().
+        """
+        if not user_obj.is_active or obj is not None:
+            return set()
+
+        perm_cache_name = f"_{from_name}_perm_cache"
+        if not hasattr(user_obj, perm_cache_name):
+            if user_obj.is_superuser:
+                perms = Permission.objects.all()
+            else:
+                perms = getattr(self, f"_get_{from_name}_permissions")(user_obj)
+            perms = perms.values_list("content_type__app_label", "codename")
+            setattr(user_obj, perm_cache_name, {f"{ct}.{name}" async for ct, name in perms})
+        return getattr(user_obj, perm_cache_name)
+
+    def has_perm(self, user_obj, perm, obj=None):
+        """
+        Check if the user has a specific permission.
+        """
+        return user_obj.is_active and super().has_perm(user_obj, perm, obj=obj)
+
+    async def ahas_perm(self, user_obj, perm, obj=None):
+        """
+        Async version of has_perm().
+        """
+        return user_obj.is_active and await super().ahas_perm(user_obj, perm, obj=obj)
+
+    def has_module_perms(self, user_obj, app_label):
+        """
+        Return True if the user has any permissions in the given app_label.
+        """
+        return user_obj.is_active and any(
+            perm.startswith(f"{app_label}.") for perm in self.get_all_permissions(user_obj)
+        )
+
+    async def ahas_module_perms(self, user_obj, app_label):
+        """
+        Async version of has_module_perms().
+        """
+        return user_obj.is_active and any(
+            perm.startswith(f"{app_label}.") for perm in await self.aget_all_permissions(user_obj)
+        )
+
+    def get_user(self, user_id):
+        """
+        Retrieve a user by their ID.
+        """
+        try:
+            user = UserModel.objects.get(pk=user_id)
+        except UserModel.DoesNotExist:
+            return None
+        return user if self.user_can_authenticate(user) else None
+
+    async def aget_user(self, user_id):
+        """
+        Async version of get_user().
+        """
+        try:
+            user = await UserModel.objects.aget(pk=user_id)
+        except UserModel.DoesNotExist:
+            return None
+        return user if await self.auser_can_authenticate(user) else None
+
