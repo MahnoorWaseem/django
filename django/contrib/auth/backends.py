@@ -174,3 +174,21 @@ from django.contrib.auth.models import Permission
                 *await self.aget_group_permissions(user_obj, obj=obj),
             }
         return user_obj._perm_cache
+
+    def has_perm(self, user_obj, perm, obj=None):
+        return user_obj.is_active and perm in self.get_all_permissions(user_obj, obj=obj)
+
+    async def ahas_perm(self, user_obj, perm, obj=None):
+        return user_obj.is_active and perm in await self.aget_all_permissions(user_obj, obj)
+
+    def has_module_perms(self, user_obj, app_label):
+        return user_obj.is_active and any(
+            perm[: perm.index(".")] == app_label
+            for perm in self.get_all_permissions(user_obj)
+        )
+
+    async def ahas_module_perms(self, user_obj, app_label):
+        return user_obj.is_active and any(
+            perm[: perm.index(".")] == app_label
+            for perm in await self.aget_all_permissions(user_obj)
+        )
