@@ -1462,3 +1462,233 @@ class FilePathField(ChoiceField):
         self.widget.choices = self.choices
 
 
+class ComboField:
+    default_error_messages = {
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, fields, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        for f in fields:
+            f.required = False
+        self.fields = fields
+        
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def clean(self, value):
+        value = super().clean(value)
+        for field in self.fields:
+            value = field.clean(value)
+        return value
+
+
+class MultiValueField:
+    default_error_messages = {
+        "invalid": _("Enter a list of values."),
+        "incomplete": _("Enter a complete value."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, fields, *, require_all_fields=True, **kwargs):
+        self.require_all_fields = require_all_fields
+        self.fields = fields
+        
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        for f in fields:
+            f.error_messages.setdefault("incomplete", self.error_messages["incomplete"])
+            if self.disabled:
+                f.disabled = True
+            if self.require_all_fields:
+                f.required = False
+                
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.fields = tuple(x.__deepcopy__(memo) for x in self.fields)
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def validate(self, value):
+        pass
+
+    def clean(self, value):
+        clean_data = []
+        errors = []
+        
+        if self.disabled and not isinstance(value, list):
+            value = self.widget.decompress(value)
+            
+        if not value or isinstance(value, (list, tuple)):
+            if not value or not [v for v in value if v not in self.empty_values]:
+                if self.required:
+                    raise ValidationError(self.error_messages["required"], code="required")
+                return self.compress([])
+        else:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+            
+        for i, field in enumerate(self.fields):
+            try:
+                field_value = value[i]
+            except IndexError:
+                field_value = None
+                
+            if field_value in self.empty_values:
+                if self.require_all_fields and self.required:
+                    raise ValidationError(self.error_messages["required"], code="required")
+                elif field.required:
+                    if field.error_messages["incomplete"] not in errors:
+                        errors.append(field.error_messages["incomplete"])
+                    continue
+                    
+            try:
+                clean_data.append(field.clean(field_value))
+            except ValidationError as e:
+                errors.extend(m for m in e.error_list if m not in errors)
+                
+        if errors:
+            raise ValidationError(errors)
+
+        out = self.compress(clean_data)
+        self.validate(out)
+        self.run_validators(out)
+        return out
+
+    def compress(self, data_list):
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        if initial is None:
+            initial = ["" for x in range(0, len(data))]
+        else:
+            if not isinstance(initial, list):
+                initial = self.widget.decompress(initial)
+        for field, initial, data in zip(self.fields, initial, data):
+            try:
+                initial = field.to_python(initial)
+            except ValidationError:
+                return True
+            if field.has_changed(initial, data):
+                return True
+        return False
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class SplitDateTimeField(MultiValueField):
+    widget = SplitDateTimeWidget
+    hidden_widget = SplitHiddenDateTimeWidget
+    default_error_messages = {
+        "invalid_date": _("Enter a valid date."),
+        "invalid_time": _("Enter a valid time."),
+        "required": _("This field is required."),
+    }
+
+    def __init__(self, *, input_date_formats=None, input_time_formats=None, **kwargs):
+        errors = self.default_error_messages.copy()
+        if "error_messages" in kwargs:
+            errors.update(kwargs["error_messages"])
+        localize = kwargs.get("localize", False)
+        fields = (
+            DateField(
+                input_formats=input_date_formats,
+                error_messages={"invalid": errors["invalid_date"]},
+                localize=localize,
+            ),
+            TimeField(
+                input_formats=input_time_formats,
+                error_messages={"invalid": errors["invalid_time"]},
+                localize=localize,
+            ),
+        )
+        super().__init__(fields, **kwargs)
+
+    def compress(self, data_list):
+        if data_list:
+            if data_list[0] in self.empty_values:
+                raise ValidationError(
+                    self.error_messages["invalid_date"], code="invalid_date"
+                )
+            if data_list[1] in self.empty_values:
+                raise ValidationError(
+                    self.error_messages["invalid_time"], code="invalid_time"
+                )
+            result = datetime.datetime.combine(*data_list)
+            return from_current_timezone(result)
+        return None
