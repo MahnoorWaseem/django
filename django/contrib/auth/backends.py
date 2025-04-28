@@ -61,3 +61,21 @@ from asgiref.sync import sync_to_async
         else:
             if await user.acheck_password(password) and self.user_can_authenticate(user):
                 return user
+
+    def _remote_authenticate(self, request, remote_user):
+        if not remote_user:
+            return
+        username = self.clean_username(remote_user)
+
+        if self.create_unknown_user:
+            user, created = UserModel._default_manager.get_or_create(
+                **{UserModel.USERNAME_FIELD: username}
+            )
+        else:
+            try:
+                user = UserModel._default_manager.get_by_natural_key(username)
+            except UserModel.DoesNotExist:
+                return None
+        
+        user = self.configure_user(request, user)
+        return user if self.user_can_authenticate(user) else None
