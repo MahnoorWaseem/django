@@ -192,3 +192,17 @@ from django.contrib.auth.models import Permission
             perm[: perm.index(".")] == app_label
             for perm in await self.aget_all_permissions(user_obj)
         )
+
+    def get_user(self, user_id):
+        try:
+            user = UserModel._default_manager.get(pk=user_id)
+        except UserModel.DoesNotExist:
+            return None
+        return user if self.user_can_authenticate(user) else None
+
+    async def aget_user(self, user_id):
+        try:
+            user = await UserModel._default_manager.aget(pk=user_id)
+        except UserModel.DoesNotExist:
+            return None
+        return user if self.user_can_authenticate(user) else None
