@@ -1185,3 +1185,280 @@ class NullBooleanField(BooleanField):
     def validate(self, value):
         pass
 
+class ChoiceField:
+    widget = Select
+    default_error_messages = {
+        "invalid_choice": _("Select a valid choice. %(value)s is not one of the available choices."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, *, choices=(), **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+        self.choices = choices
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result._choices = copy.deepcopy(self._choices, memo)
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    @property
+    def choices(self):
+        return self._choices
+
+    @choices.setter
+    def choices(self, value):
+        self._choices = self.widget.choices = normalize_choices(value)
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return ""
+        return str(value)
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+        if value and not self.valid_value(value):
+            raise ValidationError(
+                self.error_messages["invalid_choice"],
+                code="invalid_choice",
+                params={"value": value},
+            )
+
+    def valid_value(self, value):
+        text_value = str(value)
+        for k, v in self.choices:
+            if isinstance(v, (list, tuple)):
+                for k2, v2 in v:
+                    if value == k2 or text_value == str(k2):
+                        return True
+            else:
+                if value == k or text_value == str(k):
+                    return True
+        return False
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        initial_value = initial if initial is not None else ""
+        data_value = data if data is not None else ""
+        return initial_value != data_value
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class TypedChoiceField(ChoiceField):
+    def __init__(self, *, coerce=lambda val: val, empty_value="", **kwargs):
+        self.coerce = coerce
+        self.empty_value = empty_value
+        super().__init__(**kwargs)
+
+    def _coerce(self, value):
+        if value == self.empty_value or value in self.empty_values:
+            return self.empty_value
+        try:
+            value = self.coerce(value)
+        except (ValueError, TypeError, ValidationError):
+            raise ValidationError(
+                self.error_messages["invalid_choice"],
+                code="invalid_choice",
+                params={"value": value},
+            )
+        return value
+
+    def clean(self, value):
+        value = super().clean(value)
+        return self._coerce(value)
+
+class MultipleChoiceField(ChoiceField):
+    hidden_widget = MultipleHiddenInput
+    widget = SelectMultiple
+    default_error_messages = {
+        "invalid_choice": _("Select a valid choice. %(value)s is not one of the available choices."),
+        "invalid_list": _("Enter a list of values."),
+        "required": _("This field is required."),
+    }
+
+    def to_python(self, value):
+        if not value:
+            return []
+        elif not isinstance(value, (list, tuple)):
+            raise ValidationError(
+                self.error_messages["invalid_list"], code="invalid_list"
+            )
+        return [str(val) for val in value]
+
+    def validate(self, value):
+        if self.required and not value:
+            raise ValidationError(self.error_messages["required"], code="required")
+        for val in value:
+            if not self.valid_value(val):
+                raise ValidationError(
+                    self.error_messages["invalid_choice"],
+                    code="invalid_choice",
+                    params={"value": val},
+                )
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        if initial is None:
+            initial = []
+        if data is None:
+            data = []
+        if len(initial) != len(data):
+            return True
+        initial_set = {str(value) for value in initial}
+        data_set = {str(value) for value in data}
+        return data_set != initial_set
+
+class TypedMultipleChoiceField(MultipleChoiceField):
+    def __init__(self, *, coerce=lambda val: val, **kwargs):
+        self.coerce = coerce
+        self.empty_value = kwargs.pop("empty_value", [])
+        super().__init__(**kwargs)
+
+    def _coerce(self, value):
+        if value == self.empty_value or value in self.empty_values:
+            return self.empty_value
+        new_value = []
+        for choice in value:
+            try:
+                new_value.append(self.coerce(choice))
+            except (ValueError, TypeError, ValidationError):
+                raise ValidationError(
+                    self.error_messages["invalid_choice"],
+                    code="invalid_choice",
+                    params={"value": choice},
+                )
+        return new_value
+
+    def clean(self, value):
+        value = super().clean(value)
+        return self._coerce(value)
+
+    def validate(self, value):
+        if value != self.empty_value:
+            super().validate(value)
+        elif self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+class FilePathField(ChoiceField):
+    def __init__(
+        self,
+        path,
+        *,
+        match=None,
+        recursive=False,
+        allow_files=True,
+        allow_folders=False,
+        **kwargs,
+    ):
+        self.path = path
+        self.match = match
+        self.recursive = recursive
+        self.allow_files = allow_files
+        self.allow_folders = allow_folders
+        
+        super().__init__(choices=(), **kwargs)
+
+        if self.required:
+            self.choices = []
+        else:
+            self.choices = [("", "---------")]
+
+        if self.match is not None:
+            self.match_re = re.compile(self.match)
+
+        if recursive:
+            for root, dirs, files in sorted(os.walk(self.path)):
+                if self.allow_files:
+                    for f in sorted(files):
+                        if self.match is None or self.match_re.search(f):
+                            f = os.path.join(root, f)
+                            self.choices.append((f, f.replace(path, "", 1)))
+                if self.allow_folders:
+                    for f in sorted(dirs):
+                        if f == "__pycache__":
+                            continue
+                        if self.match is None or self.match_re.search(f):
+                            f = os.path.join(root, f)
+                            self.choices.append((f, f.replace(path, "", 1)))
+        else:
+            choices = []
+            with os.scandir(self.path) as entries:
+                for f in entries:
+                    if f.name == "__pycache__":
+                        continue
+                    if (
+                        (self.allow_files and f.is_file())
+                        or (self.allow_folders and f.is_dir())
+                    ) and (self.match is None or self.match_re.search(f.name)):
+                        choices.append((f.path, f.name))
+            choices.sort(key=operator.itemgetter(1))
+            self.choices.extend(choices)
+
+        self.widget.choices = self.choices
+
+
