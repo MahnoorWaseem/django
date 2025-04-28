@@ -141,3 +141,36 @@ from django.contrib.auth.models import Permission
                 {"%s.%s" % (ct, name) async for ct, name in perms},
             )
         return getattr(user_obj, perm_cache_name)
+
+
+    def get_user_permissions(self, user_obj, obj=None):
+        return self._get_permissions(user_obj, obj, "user")
+
+    async def aget_user_permissions(self, user_obj, obj=None):
+        return await self._aget_permissions(user_obj, obj, "user")
+
+    def get_group_permissions(self, user_obj, obj=None):
+        return self._get_permissions(user_obj, obj, "group")
+
+    async def aget_group_permissions(self, user_obj, obj=None):
+        return await self._aget_permissions(user_obj, obj, "group")
+
+    def get_all_permissions(self, user_obj, obj=None):
+        if not user_obj.is_active or user_obj.is_anonymous or obj is not None:
+            return set()
+        if not hasattr(user_obj, "_perm_cache"):
+            user_obj._perm_cache = {
+                *self.get_user_permissions(user_obj, obj=obj),
+                *self.get_group_permissions(user_obj, obj=obj),
+            }
+        return user_obj._perm_cache
+
+    async def aget_all_permissions(self, user_obj, obj=None):
+        if not user_obj.is_active or user_obj.is_anonymous or obj is not None:
+            return set()
+        if not hasattr(user_obj, "_perm_cache"):
+            user_obj._perm_cache = {
+                *await self.aget_user_permissions(user_obj, obj=obj),
+                *await self.aget_group_permissions(user_obj, obj=obj),
+            }
+        return user_obj._perm_cache
