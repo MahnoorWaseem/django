@@ -1019,3 +1019,61 @@ class ImageField(FileField):
             attrs.setdefault("accept", "image/*")
         return attrs
 
+
+class EmailField(CharField):
+    widget = EmailInput
+    default_validators = [validators.validate_email]
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("max_length", 320)
+        super().__init__(strip=True, **kwargs)
+
+class URLField(CharField):
+    widget = URLInput
+    default_error_messages = {
+        "invalid": _("Enter a valid URL."),
+    }
+    default_validators = [validators.URLValidator()]
+
+    def __init__(self, *, assume_scheme=None, **kwargs):
+        self.assume_scheme = assume_scheme or "https"
+        super().__init__(strip=True, **kwargs)
+
+    def to_python(self, value):
+        def split_url(url):
+            try:
+                return list(urlsplit(url))
+            except ValueError:
+                raise ValidationError(self.error_messages["invalid"], code="invalid")
+
+        value = super().to_python(value)
+        if value:
+            url_fields = split_url(value)
+            if not url_fields[0]:
+                url_fields[0] = self.assume_scheme
+            if not url_fields[1]:
+                url_fields[1] = url_fields[2]
+                url_fields[2] = ""
+                url_fields = split_url(urlunsplit(url_fields))
+            value = urlunsplit(url_fields)
+        return value
+
+class RegexField(CharField):
+    def __init__(self, regex, **kwargs):
+        kwargs.setdefault("strip", False)
+        super().__init__(**kwargs)
+        self._set_regex(regex)
+
+    def _get_regex(self):
+        return self._regex
+
+    def _set_regex(self, regex):
+        if isinstance(regex, str):
+            regex = re.compile(regex)
+        self._regex = regex
+        if hasattr(self, "_regex_validator") and self._regex_validator in self.validators:
+            self.validators.remove(self._regex_validator)
+        self._regex_validator = validators.RegexValidator(regex=regex)
+        self.validators.append(self._regex_validator)
+
+    regex = property(_get_regex, _set_regex)
