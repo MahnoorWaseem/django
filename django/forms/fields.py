@@ -1077,3 +1077,111 @@ class RegexField(CharField):
         self.validators.append(self._regex_validator)
 
     regex = property(_get_regex, _set_regex)
+
+
+class BooleanField:
+    widget = CheckboxInput
+    default_error_messages = {
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def to_python(self, value):
+        if isinstance(value, str) and value.lower() in ("false", "0"):
+            value = False
+        else:
+            value = bool(value)
+        return value
+
+    def validate(self, value):
+        if not value and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        return self.to_python(initial) != self.to_python(data)
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class NullBooleanField(BooleanField):
+    widget = NullBooleanSelect
+
+    def to_python(self, value):
+        if value in (True, "True", "true", "1"):
+            return True
+        elif value in (False, "False", "false", "0"):
+            return False
+        else:
+            return None
+
+    def validate(self, value):
+        pass
+
