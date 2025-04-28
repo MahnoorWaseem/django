@@ -25,3 +25,17 @@ class AuthBackend:
     def configure_user(self, request, user, created=True):
         """Override to configure new users if needed"""
         return user
+
+
+    def _model_authenticate(self, request, username, password, **kwargs):
+        if username is None:
+            username = kwargs.get(UserModel.USERNAME_FIELD)
+        if username is None or password is None:
+            return
+        try:
+            user = UserModel._default_manager.get_by_natural_key(username)
+        except UserModel.DoesNotExist:
+            UserModel().set_password(password)
+        else:
+            if user.check_password(password) and self.user_can_authenticate(user):
+                return user
