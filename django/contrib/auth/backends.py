@@ -98,3 +98,46 @@ from asgiref.sync import sync_to_async
         
         user = await sync_to_async(self.configure_user)(request, user)
         return user if self.user_can_authenticate(user) else None
+
+
+from django.contrib.auth.models import Permission
+
+    def _get_user_permissions(self, user_obj):
+        return user_obj.user_permissions.all()
+
+    def _get_group_permissions(self, user_obj):
+        return Permission.objects.filter(group__in=user_obj.groups.all())
+
+    def _get_permissions(self, user_obj, obj, from_name):
+        if not user_obj.is_active or user_obj.is_anonymous or obj is not None:
+            return set()
+
+        perm_cache_name = "_%s_perm_cache" % from_name
+        if not hasattr(user_obj, perm_cache_name):
+            if user_obj.is_superuser:
+                perms = Permission.objects.all()
+            else:
+                perms = getattr(self, "_get_%s_permissions" % from_name)(user_obj)
+            perms = perms.values_list("content_type__app_label", "codename").order_by()
+            setattr(
+                user_obj, perm_cache_name, {"%s.%s" % (ct, name) for ct, name in perms}
+            )
+        return getattr(user_obj, perm_cache_name)
+
+    async def _aget_permissions(self, user_obj, obj, from_name):
+        if not user_obj.is_active or user_obj.is_anonymous or obj is not None:
+            return set()
+
+        perm_cache_name = "_%s_perm_cache" % from_name
+        if not hasattr(user_obj, perm_cache_name):
+            if user_obj.is_superuser:
+                perms = Permission.objects.all()
+            else:
+                perms = getattr(self, "_get_%s_permissions" % from_name)(user_obj)
+            perms = perms.values_list("content_type__app_label", "codename").order_by()
+            setattr(
+                user_obj,
+                perm_cache_name,
+                {"%s.%s" % (ct, name) async for ct, name in perms},
+            )
+        return getattr(user_obj, perm_cache_name)
