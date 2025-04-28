@@ -371,3 +371,482 @@ class DecimalField(IntegerField):
                 step = "any"
             attrs.setdefault("step", step)
         return attrs
+
+class DateTimeFormatsIterator:
+    def __iter__(self):
+        yield from formats.get_format("DATETIME_INPUT_FORMATS")
+        yield from formats.get_format("DATE_INPUT_FORMATS")
+
+
+class DateField:
+    widget = DateInput
+    input_formats = formats.get_format_lazy("DATE_INPUT_FORMATS")
+    default_error_messages = {
+        "invalid": _("Enter a valid date."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, *, input_formats=None, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        if input_formats is not None:
+            self.input_formats = input_formats
+            
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, datetime.datetime):
+            return value.date()
+        if isinstance(value, datetime.date):
+            return value
+            
+        value = value.strip()
+        for format in self.input_formats:
+            try:
+                return datetime.datetime.strptime(value, format).date()
+            except (ValueError, TypeError):
+                continue
+        raise ValidationError(self.error_messages["invalid"], code="invalid")
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        try:
+            data = self.to_python(data)
+        except ValidationError:
+            return True
+        initial_value = initial if initial is not None else ""
+        data_value = data if data is not None else ""
+        return initial_value != data_value
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class TimeField:
+    widget = TimeInput
+    input_formats = formats.get_format_lazy("TIME_INPUT_FORMATS")
+    default_error_messages = {
+        "invalid": _("Enter a valid time."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, *, input_formats=None, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        if input_formats is not None:
+            self.input_formats = input_formats
+            
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, datetime.time):
+            return value
+            
+        value = value.strip()
+        for format in self.input_formats:
+            try:
+                return datetime.datetime.strptime(value, format).time()
+            except (ValueError, TypeError):
+                continue
+        raise ValidationError(self.error_messages["invalid"], code="invalid")
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        try:
+            data = self.to_python(data)
+        except ValidationError:
+            return True
+        initial_value = initial if initial is not None else ""
+        data_value = data if data is not None else ""
+        return initial_value != data_value
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class DateTimeField:
+    widget = DateTimeInput
+    input_formats = DateTimeFormatsIterator()
+    default_error_messages = {
+        "invalid": _("Enter a valid date/time."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, *, input_formats=None, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        if input_formats is not None:
+            self.input_formats = input_formats
+            
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def prepare_value(self, value):
+        if isinstance(value, datetime.datetime):
+            value = to_current_timezone(value)
+        return value
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, datetime.datetime):
+            return from_current_timezone(value)
+        if isinstance(value, datetime.date):
+            result = datetime.datetime(value.year, value.month, value.day)
+            return from_current_timezone(result)
+        try:
+            result = parse_datetime(value.strip())
+        except ValueError:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+        if not result:
+            value = value.strip()
+            for format in self.input_formats:
+                try:
+                    result = datetime.datetime.strptime(value, format)
+                except (ValueError, TypeError):
+                    continue
+                else:
+                    break
+            else:
+                raise ValidationError(self.error_messages["invalid"], code="invalid")
+        return from_current_timezone(result)
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        try:
+            data = self.to_python(data)
+        except ValidationError:
+            return True
+        initial_value = initial if initial is not None else ""
+        data_value = data if data is not None else ""
+        return initial_value != data_value
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
+class DurationField:
+    default_error_messages = {
+        "invalid": _("Enter a valid duration."),
+        "overflow": _("The number of days must be between {min_days} and {max_days}."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, **kwargs):
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def prepare_value(self, value):
+        if isinstance(value, datetime.timedelta):
+            return duration_string(value)
+        return value
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, datetime.timedelta):
+            return value
+        try:
+            value = parse_duration(str(value))
+        except OverflowError:
+            raise ValidationError(
+                self.error_messages["overflow"].format(
+                    min_days=datetime.timedelta.min.days,
+                    max_days=datetime.timedelta.max.days,
+                ),
+                code="overflow",
+            )
+        if value is None:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+        return value
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self, value):
+        value = self.to_python(value)
+        self.validate(value)
+        self.run_validators(value)
+        return value
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def bound_data(self, data, initial):
+        if self.disabled:
+            return initial
+        return data
+
+    def has_changed(self, initial, data):
+        if self.disabled:
+            return False
+        try:
+            data = self.to_python(data)
+        except ValidationError:
+            return True
+        initial_value = initial if initial is not None else ""
+        data_value = data if data is not None else ""
+        return initial_value != data_value
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value)
+
