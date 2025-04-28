@@ -850,3 +850,172 @@ class DurationField:
         value = bf.initial if self.disabled else bf.data
         return self.clean(value)
 
+class FileField:
+    widget = ClearableFileInput
+    default_error_messages = {
+        "invalid": _("No file was submitted. Check the encoding type on the form."),
+        "missing": _("No file was submitted."),
+        "empty": _("The submitted file is empty."),
+        "max_length": ngettext_lazy(
+            "Ensure this filename has at most %(max)d character (it has %(length)d).",
+            "Ensure this filename has at most %(max)d characters (it has %(length)d).",
+            "max",
+        ),
+        "contradiction": _("Please either submit a file or check the clear checkbox, not both."),
+        "required": _("This field is required."),
+    }
+    empty_values = list(validators.EMPTY_VALUES)
+
+    def __init__(self, *, max_length=None, allow_empty_file=False, **kwargs):
+        self.max_length = max_length
+        self.allow_empty_file = allow_empty_file
+        
+        self.required = kwargs.get('required', True)
+        self.label = kwargs.get('label')
+        self.initial = kwargs.get('initial')
+        self.help_text = kwargs.get('help_text', '')
+        self.disabled = kwargs.get('disabled', False)
+        self.label_suffix = kwargs.get('label_suffix')
+        self.localize = kwargs.get('localize', False)
+        self.template_name = kwargs.get('template_name')
+        self.bound_field_class = kwargs.get('bound_field_class')
+        self.show_hidden_initial = kwargs.get('show_hidden_initial', False)
+        
+        widget = kwargs.get('widget', self.widget)
+        if isinstance(widget, type):
+            widget = widget()
+        self.widget = copy.deepcopy(widget)
+        self.widget.is_required = self.required
+        if self.localize:
+            self.widget.is_localized = True
+            
+        self.error_messages = {}
+        for cls in reversed(self.__class__.__mro__):
+            self.error_messages.update(getattr(cls, 'default_error_messages', {}))
+        self.error_messages.update(kwargs.get('error_messages', {}))
+        
+        self.validators = kwargs.get('validators', [])
+
+    def to_python(self, data):
+        if data in self.empty_values:
+            return None
+        try:
+            file_name = data.name
+            file_size = data.size
+        except AttributeError:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+
+        if self.max_length is not None and len(file_name) > self.max_length:
+            params = {"max": self.max_length, "length": len(file_name)}
+            raise ValidationError(
+                self.error_messages["max_length"], code="max_length", params=params
+            )
+        if not file_name:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+        if not self.allow_empty_file and not file_size:
+            raise ValidationError(self.error_messages["empty"], code="empty")
+
+        return data
+
+    def clean(self, data, initial=None):
+        if data is FILE_INPUT_CONTRADICTION:
+            raise ValidationError(
+                self.error_messages["contradiction"], code="contradiction"
+            )
+        if data is False:
+            if not self.required:
+                return False
+            data = None
+        if not data and initial:
+            return initial
+        
+        data = self.to_python(data)
+        self.validate(data)
+        self.run_validators(data)
+        return data
+
+    def validate(self, value):
+        if value in self.empty_values and self.required:
+            raise ValidationError(self.error_messages["required"], code="required")
+
+    def run_validators(self, value):
+        if value in self.empty_values:
+            return
+        errors = []
+        for v in self.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                if hasattr(e, "code") and e.code in self.error_messages:
+                    e.message = self.error_messages[e.code]
+                errors.extend(e.error_list)
+        if errors:
+            raise ValidationError(errors)
+
+    def bound_data(self, _, initial):
+        return initial
+
+    def has_changed(self, initial, data):
+        return not self.disabled and data is not None
+
+    def widget_attrs(self, widget):
+        return {}
+
+    def get_bound_field(self, form, field_name):
+        bound_field_class = self.bound_field_class or form.bound_field_class or BoundField
+        return bound_field_class(form, self, field_name)
+
+    def __deepcopy__(self, memo):
+        result = copy.copy(self)
+        memo[id(self)] = result
+        result.widget = copy.deepcopy(self.widget, memo)
+        result.error_messages = self.error_messages.copy()
+        result.validators = self.validators[:]
+        return result
+
+    def _clean_bound_field(self, bf):
+        value = bf.initial if self.disabled else bf.data
+        return self.clean(value, bf.initial)
+
+class ImageField(FileField):
+    default_validators = [validators.validate_image_file_extension]
+    default_error_messages = {
+        "invalid_image": _(
+            "Upload a valid image. The file you uploaded was either not an "
+            "image or a corrupted image."
+        ),
+    }
+
+    def to_python(self, data):
+        f = super().to_python(data)
+        if f is None:
+            return None
+
+        if hasattr(data, "temporary_file_path"):
+            file = data.temporary_file_path()
+        else:
+            if hasattr(data, "read"):
+                file = BytesIO(data.read())
+            else:
+                file = BytesIO(data["content"])
+
+        try:
+            image = Image.open(file)
+            image.verify()
+            f.image = image
+            f.content_type = Image.MIME.get(image.format)
+        except Exception as exc:
+            raise ValidationError(
+                self.error_messages["invalid_image"],
+                code="invalid_image",
+            ) from exc
+        if hasattr(f, "seek") and callable(f.seek):
+            f.seek(0)
+        return f
+
+    def widget_attrs(self, widget):
+        attrs = super().widget_attrs(widget)
+        if isinstance(widget, FileInput) and "accept" not in widget.attrs:
+            attrs.setdefault("accept", "image/*")
+        return attrs
+
