@@ -39,3 +39,25 @@ class AuthBackend:
         else:
             if user.check_password(password) and self.user_can_authenticate(user):
                 return user
+
+from asgiref.sync import sync_to_async
+
+    async def aauthenticate(self, request, username=None, password=None, remote_user=None, **kwargs):
+        if self.backend_type == 'model':
+            return await self._amodel_authenticate(request, username, password, **kwargs)
+        elif self.backend_type == 'remote':
+            return await self._aremote_authenticate(request, remote_user)
+        return None
+
+    async def _amodel_authenticate(self, request, username, password, **kwargs):
+        if username is None:
+            username = kwargs.get(UserModel.USERNAME_FIELD)
+        if username is None or password is None:
+            return
+        try:
+            user = await UserModel._default_manager.aget_by_natural_key(username)
+        except UserModel.DoesNotExist:
+            UserModel().set_password(password)
+        else:
+            if await user.acheck_password(password) and self.user_can_authenticate(user):
+                return user
